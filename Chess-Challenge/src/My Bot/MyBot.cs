@@ -4,6 +4,14 @@ using System.Numerics;
 using System.Collections.Generic;
 using System.Linq;
 
+class Node {
+    Board board;
+    Move move;
+    public Node(Board board, Move move) {
+        this.board = board;
+        this.move = move;
+    }
+}
 
 public class MyBot : IChessBot {
 
@@ -14,48 +22,49 @@ public class MyBot : IChessBot {
         {PieceType.Rook, 5},
         {PieceType.Queen, 8},
     };
-    Dictionary<Tuple<ulong, bool>, Tuple<int, Move, int>> cache = new Dictionary<Tuple<ulong, bool>, Tuple<int, Move, int>>();
 
     public Move Think(Board board, Timer timer) {
-        Console.WriteLine($"Thinking... [cache: {cache.Count}]");
-        (int value, Move move, int depth) = minmax(board, 3, board.IsWhiteToMove);
-        Console.WriteLine($"Eval: {value}, {depth}");
+        Console.WriteLine($"Thinking... ");
+        (int value, Move move) = minmax(board, 4, int.MinValue, int.MaxValue, board.IsWhiteToMove);
         return move;
     }
 
-    // private Tuple<int, Move, int> cachedMinmax(Board board, int depth, bool maximize) {
-    //     Tuple<ulong, bool> key = Tuple.Create(board.ZobristKey, maximize);
-    //     if (cache.ContainsKey(key)) {
-    //         return cache[key];
-    //     }
-    //     Tuple<int, Move, int> result = minmax(board, depth, maximize);
-    //     cache[key] = result;
-    //     return result;
-    // }
-
-    private Tuple<int, Move, int> minmax(Board board, int depth, bool maximize) {
-        if (depth == 0) {
-            return Tuple.Create(eval(board), Move.NullMove, depth);
+    private (int, Move) minmax(Board board, int depth, int alpha, int beta, bool maximize) {
+        if (depth == 0 || board.IsDraw() || board.IsInCheckmate()) {
+            return (eval(board), Move.NullMove);
         }
-        Func<int, int, bool> func = maximize ? gt : lt;
-        int bestValue = maximize ? int.MinValue : int.MaxValue;
-        Move bestMove = Move.NullMove;
-        foreach (Move move in board.GetLegalMoves()) {
-            (int value, Move _, int __) = minmax(branch(board, move), depth - 1, !maximize);
-            if (func(value, bestValue)) {
-                bestValue = value;
-                bestMove = move;
+        if (maximize) {
+            int value = int.MinValue;
+            Move bestMove = Move.NullMove;
+            foreach (Move move in board.GetLegalMoves()) {
+                (int childValue, _) = minmax(branch(board, move), depth - 1, alpha, beta, false);
+                if (childValue > value) {
+                    value = childValue;
+                    bestMove = move;
+                }
+                value = Math.Max(value, childValue);
+                if (value > beta) {
+                    break;
+                }
+                alpha = Math.Max(alpha, value);
             }
+            return (value, bestMove);
+        } else {
+            int value = int.MaxValue;
+            Move bestMove = Move.NullMove;
+            foreach (Move move in board.GetLegalMoves()) {
+                (int childValue, _) = minmax(branch(board, move), depth - 1, alpha, beta, true);
+                if (childValue < value) {
+                    value = childValue;
+                    bestMove = move;
+                }
+                if (value < alpha) {
+                    break;
+                }
+                beta = Math.Min(beta, value);
+            }
+            return (value, bestMove);
         }
-        return Tuple.Create(bestValue, bestMove, depth);
-    }
-
-    private bool gt(int value, int bestValue) {
-        return value > bestValue;
-    }
-
-    private bool lt(int value, int bestValue) {
-        return value < bestValue;
     }
 
     private Board branch(Board board, Move move) {
@@ -65,18 +74,21 @@ public class MyBot : IChessBot {
     }
 
     private int eval(Board board) {
+        if (board.IsInCheckmate()) {
+            if (board.IsWhiteToMove) {
+                return -99999;
+            } else {
+                return 99999;
+            }
+        }
+        if (board.IsDraw()) {
+            return 0;
+        }
         int score = 0;
         foreach ((PieceType type, int value) in pieceValues) {
             PieceList whitePieces = board.GetPieceList(type, true);
             PieceList blackPieces= board.GetPieceList(type, false);
             score += (whitePieces.Count * value) - (blackPieces.Count * value);
-        }
-        if (board.IsInCheckmate()) {
-            if (board.IsWhiteToMove) {
-                score -= 99999;
-            } else {
-                score += 99999;
-            }
         }
         return score;
     }
