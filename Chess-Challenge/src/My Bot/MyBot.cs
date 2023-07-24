@@ -19,7 +19,7 @@ public class MyBot : IChessBot {
 
     public Move Think(Board board, Timer timer) {
         Console.WriteLine($"Thinking... ");
-        (int value, Move move) = minmax(board, 3, int.MinValue, int.MaxValue, board.IsWhiteToMove);
+        (int value, Move move) = minmax(board, 4, int.MinValue, int.MaxValue, board.IsWhiteToMove);
         return move;
     }
 
@@ -30,10 +30,12 @@ public class MyBot : IChessBot {
         if (maximize) {
             int value = int.MinValue;
             Move bestMove = Move.NullMove;
-            foreach ((Move move, Board child) in OrderedChildren(board)) {
-                (int childValue, _) = minmax(child, depth - 1, alpha, beta, false);
-                valueCache.Remove(child.ZobristKey);
-                valueCache.Add(child.ZobristKey, childValue);
+            foreach (Move move in OrderedMoves(board, false)) {
+                board.MakeMove(move);
+                (int childValue, _) = minmax(board, depth - 1, alpha, beta, false);
+                valueCache.Remove(board.ZobristKey);
+                valueCache.Add(board.ZobristKey, childValue);
+                board.UndoMove(move);
                 if (childValue > value) {
                     value = childValue;
                     bestMove = move;
@@ -48,10 +50,12 @@ public class MyBot : IChessBot {
         } else {
             int value = int.MaxValue;
             Move bestMove = Move.NullMove;
-            foreach ((Move move, Board child) in OrderedChildren(board)) {
-                (int childValue, _) = minmax(child, depth - 1, alpha, beta, true);
-                valueCache.Remove(child.ZobristKey);
-                valueCache.Add(child.ZobristKey, childValue);
+            foreach (Move move in OrderedMoves(board, true)) {
+                board.MakeMove(move);
+                (int childValue, _) = minmax(board, depth - 1, alpha, beta, true);
+                valueCache.Remove(board.ZobristKey);
+                valueCache.Add(board.ZobristKey, childValue);
+                board.UndoMove(move);
                 if (childValue < value) {
                     value = childValue;
                     bestMove = move;
@@ -65,20 +69,23 @@ public class MyBot : IChessBot {
         }
     }
 
-    private Board branch(Board board, Move move) {
-        Board next = Board.CreateBoardFromFEN(board.GetFenString());
-        next.MakeMove(move);
-        return next;
-    }
-
-    private List<Tuple<Move, Board>> OrderedChildren(Board board) {
-        List<Tuple<Move, Board>> results = new List<Tuple<Move, Board>>();
+    private List<Move> OrderedMoves(Board board, bool reverse) {
+        List<Tuple<Move, int>> results = new List<Tuple<Move, int>>();
         foreach (Move move in board.GetLegalMoves()) {
-            Board nextBoard = branch(board, move);
-            results.Add(Tuple.Create(move, nextBoard));
+            board.MakeMove(move);
+            results.Add(Tuple.Create(move, valueCache.GetValueOrDefault(board.ZobristKey)));
+            board.UndoMove(move);
         }
-        results.Sort((x, y) => valueCache.GetValueOrDefault(y.Item2.ZobristKey) - valueCache.GetValueOrDefault(x.Item2.ZobristKey));
-        return results;
+        if (reverse) {
+            results.Sort((x, y) => x.Item2 - y.Item2);
+        } else {
+            results.Sort((x, y) => y.Item2 - x.Item2);
+        }
+        List<Move> ret = new List<Move>();
+        foreach ((Move move, _) in results) {
+            ret.Add(move);
+        }
+        return ret;
     }
 
     private int eval(Board board) {
