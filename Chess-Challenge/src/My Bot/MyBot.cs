@@ -4,14 +4,6 @@ using System.Numerics;
 using System.Collections.Generic;
 using System.Linq;
 
-class Node {
-    Board board;
-    Move move;
-    public Node(Board board, Move move) {
-        this.board = board;
-        this.move = move;
-    }
-}
 
 public class MyBot : IChessBot {
 
@@ -23,9 +15,11 @@ public class MyBot : IChessBot {
         {PieceType.Queen, 8},
     };
 
+    Dictionary<ulong, int> valueCache = new Dictionary<ulong, int>();
+
     public Move Think(Board board, Timer timer) {
         Console.WriteLine($"Thinking... ");
-        (int value, Move move) = minmax(board, 4, int.MinValue, int.MaxValue, board.IsWhiteToMove);
+        (int value, Move move) = minmax(board, 3, int.MinValue, int.MaxValue, board.IsWhiteToMove);
         return move;
     }
 
@@ -36,8 +30,10 @@ public class MyBot : IChessBot {
         if (maximize) {
             int value = int.MinValue;
             Move bestMove = Move.NullMove;
-            foreach (Move move in board.GetLegalMoves()) {
-                (int childValue, _) = minmax(branch(board, move), depth - 1, alpha, beta, false);
+            foreach ((Move move, Board child) in OrderedChildren(board)) {
+                (int childValue, _) = minmax(child, depth - 1, alpha, beta, false);
+                valueCache.Remove(child.ZobristKey);
+                valueCache.Add(child.ZobristKey, childValue);
                 if (childValue > value) {
                     value = childValue;
                     bestMove = move;
@@ -52,8 +48,10 @@ public class MyBot : IChessBot {
         } else {
             int value = int.MaxValue;
             Move bestMove = Move.NullMove;
-            foreach (Move move in board.GetLegalMoves()) {
-                (int childValue, _) = minmax(branch(board, move), depth - 1, alpha, beta, true);
+            foreach ((Move move, Board child) in OrderedChildren(board)) {
+                (int childValue, _) = minmax(child, depth - 1, alpha, beta, true);
+                valueCache.Remove(child.ZobristKey);
+                valueCache.Add(child.ZobristKey, childValue);
                 if (childValue < value) {
                     value = childValue;
                     bestMove = move;
@@ -71,6 +69,16 @@ public class MyBot : IChessBot {
         Board next = Board.CreateBoardFromFEN(board.GetFenString());
         next.MakeMove(move);
         return next;
+    }
+
+    private List<Tuple<Move, Board>> OrderedChildren(Board board) {
+        List<Tuple<Move, Board>> results = new List<Tuple<Move, Board>>();
+        foreach (Move move in board.GetLegalMoves()) {
+            Board nextBoard = branch(board, move);
+            results.Add(Tuple.Create(move, nextBoard));
+        }
+        results.Sort((x, y) => valueCache.GetValueOrDefault(y.Item2.ZobristKey) - valueCache.GetValueOrDefault(x.Item2.ZobristKey));
+        return results;
     }
 
     private int eval(Board board) {
