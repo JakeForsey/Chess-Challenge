@@ -15,7 +15,8 @@ public class MyBot : IChessBot {
         {PieceType.Queen, 8},
     };
 
-    Dictionary<ulong, int> valueCache = new Dictionary<ulong, int>();
+    // (board z, move hash): minmax(board.MakeMove(move), ...)
+    Dictionary<(ulong, int), int> valueCache = new Dictionary<(ulong, int), int>();
 
     public Move Think(Board board, Timer timer) {
         Console.WriteLine($"Thinking... ");
@@ -30,12 +31,11 @@ public class MyBot : IChessBot {
         if (maximize) {
             int value = int.MinValue;
             Move bestMove = Move.NullMove;
-            foreach (Move move in OrderedMoves(board, false)) {
+            foreach (Move move in PrioritisedMoves(board)) {
                 board.MakeMove(move);
                 (int childValue, _) = minmax(board, depth - 1, alpha, beta, false);
-                valueCache.Remove(board.ZobristKey);
-                valueCache.Add(board.ZobristKey, childValue);
                 board.UndoMove(move);
+                UpdateValueCache(board, move, childValue);
                 if (childValue > value) {
                     value = childValue;
                     bestMove = move;
@@ -50,12 +50,11 @@ public class MyBot : IChessBot {
         } else {
             int value = int.MaxValue;
             Move bestMove = Move.NullMove;
-            foreach (Move move in OrderedMoves(board, true)) {
+            foreach (Move move in PrioritisedMoves(board)) {
                 board.MakeMove(move);
                 (int childValue, _) = minmax(board, depth - 1, alpha, beta, true);
-                valueCache.Remove(board.ZobristKey);
-                valueCache.Add(board.ZobristKey, childValue);
                 board.UndoMove(move);
+                UpdateValueCache(board, move, childValue);
                 if (childValue < value) {
                     value = childValue;
                     bestMove = move;
@@ -69,23 +68,16 @@ public class MyBot : IChessBot {
         }
     }
 
-    private List<Move> OrderedMoves(Board board, bool reverse) {
-        List<Tuple<Move, int>> results = new List<Tuple<Move, int>>();
-        foreach (Move move in board.GetLegalMoves()) {
-            board.MakeMove(move);
-            results.Add(Tuple.Create(move, valueCache.GetValueOrDefault(board.ZobristKey)));
-            board.UndoMove(move);
-        }
-        if (reverse) {
-            results.Sort((x, y) => x.Item2 - y.Item2);
-        } else {
-            results.Sort((x, y) => y.Item2 - x.Item2);
-        }
-        List<Move> ret = new List<Move>();
-        foreach ((Move move, _) in results) {
-            ret.Add(move);
-        }
-        return ret;
+    private void UpdateValueCache(Board board, Move move, int value) {
+        var key = (board.ZobristKey, move.GetHashCode());
+        valueCache.Remove(key);
+        valueCache.Add(key, value);
+    }
+
+    private List<Move> PrioritisedMoves(Board board) {
+        return board.GetLegalMoves()
+            .OrderByDescending(move => valueCache.GetValueOrDefault((board.ZobristKey, move.GetHashCode())))
+            .ToList();
     }
 
     private int eval(Board board) {
