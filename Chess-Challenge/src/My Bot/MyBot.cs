@@ -4,7 +4,6 @@ using System.Numerics;
 using System.Collections.Generic;
 using System.Linq;
 
-
 class PSTManager {
     private static sbyte[] LongTo8Sbytes(long input) {
         sbyte[] ret = new sbyte[8];
@@ -26,7 +25,6 @@ class PSTManager {
         return ret;
     }
 }
-
 
 public class MyBot : IChessBot {
     // https://www.chessprogramming.org/Simplified_Evaluation_Function
@@ -69,9 +67,6 @@ public class MyBot : IChessBot {
         {PieceType.King, blackKingPST}
     };
 
-    // (board z, move hash): minmax(board.MakeMove(move), ...)
-    Dictionary<(ulong, int), int> valueCache = new Dictionary<(ulong, int), int>();
-
     public Move Think(Board board, Timer timer) {
         return minmax(board, 4, int.MinValue, int.MaxValue, board.IsWhiteToMove).Item2;
     }
@@ -80,14 +75,15 @@ public class MyBot : IChessBot {
         if (depth == 0 || board.IsDraw() || board.IsInCheckmate()) {
             return (eval(board), Move.NullMove);
         }
+        Span<Move> moves = stackalloc Move[218];
+        board.GetLegalMovesNonAlloc(ref moves);
         if (maximize) {
             int value = int.MinValue;
             Move bestMove = Move.NullMove;
-            foreach (Move move in PrioritisedMoves(board, true)) {
+            foreach (Move move in moves) {
                 board.MakeMove(move);
                 (int childValue, _) = minmax(board, depth - 1, alpha, beta, false);
                 board.UndoMove(move);
-                UpdateValueCache(board, move, childValue);
                 if (childValue > value) {
                     value = childValue;
                     bestMove = move;
@@ -102,11 +98,10 @@ public class MyBot : IChessBot {
         } else {
             int value = int.MaxValue;
             Move bestMove = Move.NullMove;
-            foreach (Move move in PrioritisedMoves(board, false)) {
+            foreach (Move move in moves) {
                 board.MakeMove(move);
                 (int childValue, _) = minmax(board, depth - 1, alpha, beta, true);
                 board.UndoMove(move);
-                UpdateValueCache(board, move, childValue);
                 if (childValue < value) {
                     value = childValue;
                     bestMove = move;
@@ -118,18 +113,6 @@ public class MyBot : IChessBot {
             }
             return (value, bestMove);
         }
-    }
-
-    private void UpdateValueCache(Board board, Move move, int value) {
-        var key = (board.ZobristKey, move.GetHashCode());
-        valueCache.Remove(key);
-        valueCache.Add(key, value);
-    }
-
-    private List<Move> PrioritisedMoves(Board board, bool bestFirst) {
-        return board.GetLegalMoves()
-            .OrderBy(move => bestFirst ? -1 : 1 * valueCache.GetValueOrDefault((board.ZobristKey, move.GetHashCode())))
-            .ToList();
     }
 
     private int eval(Board board) {
