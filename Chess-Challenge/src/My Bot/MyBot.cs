@@ -26,25 +26,6 @@ class PSTManager {
     }
 }
 
-enum Flag {
-    EXACT,
-    LOWERBOUND,
-    UPPERBOUND
-}
-
-struct TTEntry {
-    public int depth;
-    public Flag flag;
-    public double value;
-    public Move move;
-    public TTEntry(int depth, Flag flag, Move move, double value) {
-        this.depth = depth;
-        this.flag = flag;
-        this.move = move;
-        this.value = value;
-    }
-}
-
 public class MyBot : IChessBot {
     // https://www.chessprogramming.org/Simplified_Evaluation_Function
     Dictionary<PieceType, int> pieceValues = new Dictionary<PieceType, int>{
@@ -65,104 +46,49 @@ public class MyBot : IChessBot {
         {PieceType.King, PSTManager.DecodePST(new long[] {-2100690843423155998, -2100690843423155998, -2100690843423155998, -2100690843423155998, -1377289115042389268, -653887343544177418, 1446781380292776980, 1449607125176819220})}
     };
 
-    Dictionary<ulong, TTEntry> TT = new();
-
     static double INF = 2147483646;
-    public MyBot() {
-        foreach ((PieceType type, sbyte[] a) in PST) {
-            Console.WriteLine(type);
-            Console.WriteLine(a.Max());
-            Console.WriteLine(a.Min());
-        }
-    }
+
     public Move Think(Board board, Timer timer) {
         int sign = board.IsWhiteToMove ? 1 : -1;
-        (double value, Move move) = negamax(board, 4, 4, -INF, INF, sign);
-        Console.WriteLine($"TT: {TT.Count}");
+        (double value, Move move) = negamax(board, 4, -INF, INF, sign);
         Console.WriteLine($"eval: {value}");
         return move;
     }
 
-    private (double, Move) negamax(Board board, int depth, int origDepth, double alpha, double beta, int sign) {
-        double alphaOrig = alpha;
-        Move bestMove = Move.NullMove;
-        TTEntry lookup = new();
-        bool lookupSuccess = TT.TryGetValue(board.ZobristKey, out lookup);
-        lookupSuccess = false;
-
-        if (lookupSuccess) {
-            if (lookup.depth >= depth) {
-                if (lookup.flag == Flag.EXACT) {
-                    if (depth == origDepth) {
-                        bestMove = lookup.move;
-                    }
-                    return (lookup.value, bestMove);
-                } else if (lookup.flag == Flag.LOWERBOUND) {
-                    alpha = Math.Max(alpha, lookup.value);
-                } else if (lookup.flag == Flag.UPPERBOUND) {
-                    beta = Math.Min(beta, lookup.value);
-                }
-                if (alpha >= beta) {
-                    if (depth == origDepth) {
-                        bestMove = lookup.move;
-                    }
-                    return (lookup.value, bestMove);
-                }
-            }
-        }
+    private (double, Move) negamax(Board board, int depth, double alpha, double beta, int sign) {
 
         if (depth == 0 || board.IsDraw() || board.IsInCheckmate()) {
-            // TODO: Add in penalty for slow wins...
-            if (depth != 0) {
-                Console.WriteLine("AAA");
-            }
             double score = sign * eval(board);
             return (score * (1 + 0.001 * depth),  Move.NullMove);
         }
 
-        List<Move> possibleMoves = board.GetLegalMoves().ToList();
-        if (lookupSuccess) {
-            possibleMoves.Prepend(lookup.move);
-        }
+        Span<Move> moves = new Move[218];
+        board.GetLegalMovesNonAlloc(ref moves);
 
-        double bestValue = -INF;
-        foreach (Move move in possibleMoves) {
-            board.MakeMove(move);
-            (double moveAlpha, _) = negamax(board, depth - 1, origDepth, -beta, -alpha, sign);
-            moveAlpha = -moveAlpha;
-            board.UndoMove(move);
+        Move move = Move.NullMove;
+        double value = -INF;
+        foreach (Move childMove in moves) {
 
-            if (bestValue < moveAlpha) {
-                bestValue = moveAlpha;
-                bestMove = move;
+            board.MakeMove(childMove);
+            (double childValue, _) = negamax(board, depth - 1, -beta, -alpha, -sign);
+            childValue = -childValue;
+            board.UndoMove(childMove);
+
+            if (childValue > value) {
+                value = childValue;
+                move = childMove;
             }
-
-            if (alpha < moveAlpha) {
-                alpha = moveAlpha;
-                if (depth == origDepth) {
-                    bestMove = move;
-                }
-                if (alpha >= beta) {
-                    break;
-                }
+            alpha = Math.Max(alpha, value);
+            if (alpha >= beta) {
+                break;
             }
         }
-
-        Flag flag;
-        if (bestValue <= alphaOrig) {
-            flag = Flag.UPPERBOUND;
-        } else if (bestValue >= beta) {
-            flag = Flag.LOWERBOUND;
-        } else {
-            flag = Flag.EXACT;
-        }
-        TT[board.ZobristKey] = new TTEntry(depth, flag, bestMove, bestValue);
-
-        return (bestValue, bestMove);
+        return (value, move);
     }
 
     private double eval(Board board) {
-        if (board.IsDraw()) {
+        var segment = new ArraySegment<ulong>(board.GameRepetitionHistory, 0, board.GameRepetitionHistory.Length - 1);
+        if (segment.Contains(board.ZobristKey) || board.IsDraw()) {
             return 0;
         }
         double score = 0;
